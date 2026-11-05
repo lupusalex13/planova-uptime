@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      proba_alerta:
+        description: "Pica intentionat, ca sa probezi emailul"
+        type: boolean
+        default: false
 
 jobs:
   check:
@@ -27,4 +32,5 @@ jobs:
           check https://app.planova.ro/health-status '"status":"Healthy"'
           check https://default.app.planova.ro/health-status '"status":"Healthy"'
           check https://planova.ro/ ''
+          if [ "${{ inputs.proba_alerta }}" = "true" ]; then echo "::error::PROBA de alerta (intentionat)"; fail=1; fi
           exit $fail
