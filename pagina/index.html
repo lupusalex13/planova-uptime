@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Starea aplicației · Planova</title>
+<meta name="description" content="Starea curentă a aplicației Planova și incidentele anunțate.">
+<meta name="theme-color" content="#0F172A">
+<meta name="robots" content="noindex">
+<style>
+:root{--ink:#0F172A;--indigo:#4338CA;--paper:#F8FAFC;--line:#D9E0EA;--muted:#5A6678;
+  --ok:#047857;--ok-bg:#ECFDF5;--rau:#B91C1C;--rau-bg:#FEF2F2;--gri-bg:#EEF2F7}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:17px;line-height:1.6}
+main{max-width:720px;margin:0 auto;padding:40px 20px 56px}
+.brand{font-weight:700;font-size:20px;letter-spacing:-.01em;color:var(--ink);text-decoration:none}
+.brand span{color:#F59E0B}
+h1{font-size:30px;line-height:1.2;margin:28px 0 8px}
+h2{font-size:20px;margin:40px 0 12px}
+.sub{color:var(--muted);margin:0}
+.banner{margin-top:24px;padding:18px 20px;border-radius:12px;font-weight:700;font-size:18px;border:1px solid var(--line);background:var(--gri-bg)}
+.banner.ok{background:var(--ok-bg);color:var(--ok);border-color:#A7F3D0}
+.banner.rau{background:var(--rau-bg);color:var(--rau);border-color:#FECACA}
+ul.tinte{list-style:none;padding:0;margin:16px 0 0;border:1px solid var(--line);border-radius:12px;background:#fff}
+ul.tinte li{display:flex;justify-content:space-between;gap:16px;padding:14px 18px;border-top:1px solid var(--line)}
+ul.tinte li:first-child{border-top:0}
+.st{font-weight:700;white-space:nowrap}
+.st.ok{color:var(--ok)}.st.picat{color:var(--rau)}
+.meta{color:var(--muted);font-size:15px;margin-top:12px}
+.avert{margin-top:12px;padding:12px 16px;border-radius:10px;background:#FFFBEB;border:1px solid #FDE68A;font-size:15px}
+pre{white-space:pre-wrap;word-wrap:break-word;font-family:inherit;margin:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+footer{margin-top:48px;color:var(--muted);font-size:14px}
+footer a{color:var(--indigo)}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="https://planova.ro/">planova<span>.</span></a>
+  <h1>Starea aplicației</h1>
+  <p class="sub">Verificăm aplicația la 5 minute, de pe un serviciu separat de serverul Planova.</p>
+
+  <div id="banner" class="banner" role="status">Se încarcă starea...</div>
+  <ul class="tinte" id="tinte"></ul>
+  <p class="meta" id="meta"></p>
+  <div class="avert" id="avert" hidden></div>
+
+  <h2>Incidente anunțate</h2>
+  <pre id="incidente">Se încarcă...</pre>
+
+  <footer>
+    Pagina nu promite un procent de disponibilitate. Arată starea de acum și incidentele anunțate de noi.
+    Ora este ora României. Pagina este găzduită de GitHub, separat de serverul aplicației.
+    Întrebări: <a href="mailto:suport@planova.ro">suport@planova.ro</a> · <a href="https://planova.ro/securitate/">Securitate și date</a>
+  </footer>
+</main>
+<script>
+(function(){
+  var ora = new Intl.DateTimeFormat('ro-RO',{timeZone:'Europe/Bucharest',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+  function el(id){return document.getElementById(id);}
+  fetch('status.json?t=' + Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+    var picate = s.tinte.filter(function(t){return t.stare !== 'ok';}).length;
+    var b = el('banner');
+    b.className = 'banner ' + (picate ? 'rau' : 'ok');
+    b.textContent = picate ? 'Unele servicii nu răspund. Investigăm.' : 'Toate serviciile funcționează.';
+    el('tinte').innerHTML = '';
+    s.tinte.forEach(function(t){
+      var li = document.createElement('li');
+      var n = document.createElement('span'); n.textContent = t.nume;
+      var st = document.createElement('span');
+      st.className = 'st ' + (t.stare === 'ok' ? 'ok' : 'picat');
+      st.textContent = t.stare === 'ok' ? 'Funcționează' : 'Nu răspunde';
+      li.appendChild(n); li.appendChild(st); el('tinte').appendChild(li);
+    });
+    var d = new Date(s.actualizat);
+    el('meta').textContent = 'Ultima actualizare a paginii: ' + ora.format(d) + '. Pagina se actualizează la orice schimbare și cel puțin o dată pe oră.';
+    if (Date.now() - d.getTime() > 2 * 3600 * 1000) {
+      var a = el('avert'); a.hidden = false;
+      a.textContent = 'Monitorul nu a mai raportat de peste două ore. Starea de mai sus poate fi veche.';
+    }
+  }).catch(function(){
+    el('banner').textContent = 'Starea nu se poate citi acum. Încercați din nou în câteva minute.';
+  });
+  fetch('incidente.txt?t=' + Date.now(),{cache:'no-store'}).then(function(r){ if(!r.ok) throw new Error(); return r.text(); }).then(function(t){
+    el('incidente').textContent = t.trim() || 'Niciun incident anunțat.';
+  }).catch(function(){ el('incidente').textContent = 'Incidentele nu pot fi încărcate acum.'; });
+})();
+</script>
+</body>
+</html>

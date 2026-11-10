@@ -3,6 +3,9 @@ name: uptime
 on:
   schedule:
     - cron: "*/5 * * * *"
+  push:
+    branches: [main]
+    paths: ["incidente.txt", "pagina/**"]
   workflow_dispatch:
     inputs:
       proba_alerta:
@@ -10,27 +13,95 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 7
+    environment:
+      name: github-pages
     steps:
+      - uses: actions/checkout@v4
+
       - name: Verifica Planova
         run: |
           fail=0
+          : > rezultate.txt
           check() {
-            url="$1"; expect="$2"
+            id="$1"; url="$2"; expect="$3"
             for i in 1 2 3; do
               body=$(curl -s --max-time 15 -w '\n%{http_code}' "$url") && code=$(echo "$body" | tail -n1) || code=000
               if [ "$code" = "200" ] && { [ -z "$expect" ] || echo "$body" | grep -q "$expect"; }; then
-                echo "OK  $url"; return 0
+                echo "OK  $url"; echo "$id ok" >> rezultate.txt; return 0
               fi
-              sleep 20
+              [ "$i" -lt 3 ] && sleep 20
             done
-            echo "::error::PICAT $url (cod $code): $(echo "$body" | sed '$d' | tr -d '\r\n' | head -c 600)"; fail=1
+            echo "::error::PICAT $url (cod $code): $(echo "$body" | sed '$d' | tr -d '\r\n' | head -c 600)"
+            echo "$id picat" >> rezultate.txt; fail=1
           }
-          check https://app.planova.ro/health-status '"status":"Healthy"'
-          check https://default.app.planova.ro/health-status '"status":"Healthy"'
-          check https://planova.ro/ ''
+          check aplicatie https://app.planova.ro/health-status '"status":"Healthy"'
+          check organizatii https://default.app.planova.ro/health-status '"status":"Healthy"'
+          check site https://planova.ro/ ''
           if [ "${{ inputs.proba_alerta }}" = "true" ]; then echo "::error::PROBA de alerta (intentionat)"; fail=1; fi
           exit $fail
+
+      # Pagina de stare (status.planova.ro, GitHub Pages cu sursa „GitHub Actions”).
+      # Se publica doar cand se schimba starea, la push pe incidente.txt / pagina/, la pornire manuala,
+      # sau daca ultima publicare e mai veche de ~55 min. Un esec aici nu inroseste jobul:
+      # alerta pe email ramane legata doar de verificari.
+      - name: Pregateste pagina de stare
+        id: pagina
+        if: always() && hashFiles('rezultate.txt') != ''
+        continue-on-error: true
+        run: |
+          set -e
+          stare() { awk -v k="$1" '$1==k{print $2}' rezultate.txt; }
+          A=$(stare aplicatie); O=$(stare organizatii); S=$(stare site)
+          [ -n "$A" ] && [ -n "$O" ] && [ -n "$S" ] || { echo "Verificare incompleta, nu public."; exit 0; }
+          ACUM=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          VECHI=$(curl -fsSL --max-time 10 "https://lupusalex13.github.io/planova-uptime/status.json?t=$(date -u +%s)" || true)
+          STARI_VECHI=$(echo "$VECHI" | jq -r '[.tinte[].stare] | join(",")' 2>/dev/null || echo "")
+          ACT_VECHI=$(echo "$VECHI" | jq -r '.actualizat // ""' 2>/dev/null || echo "")
+          VARSTA=999999
+          if [ -n "$ACT_VECHI" ]; then VARSTA=$(( $(date -u +%s) - $(date -u -d "$ACT_VECHI" +%s) )); fi
+
+          MOTIV=""
+          [ "$A,$O,$S" != "$STARI_VECHI" ] && MOTIV="starea s-a schimbat"
+          [ "$VARSTA" -ge 3300 ] && MOTIV="${MOTIV:-a trecut o ora}"
+          [ "${{ github.event_name }}" = "push" ] && MOTIV="${MOTIV:-incidente sau pagina schimbate}"
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && MOTIV="${MOTIV:-pornire manuala}"
+          if [ -z "$MOTIV" ]; then echo "Nimic nou ($A,$O,$S, publicat acum $VARSTA s)."; exit 0; fi
+          echo "Public: $MOTIV"
+
+          mkdir -p out
+          cp pagina/* out/
+          if [ -f incidente.txt ]; then cp incidente.txt out/incidente.txt; else : > out/incidente.txt; fi
+          jq -n --arg t "$ACUM" --arg a "$A" --arg o "$O" --arg s "$S" '{
+            actualizat: $t,
+            tinte: [
+              {nume: "Aplicația (app.planova.ro)", stare: $a},
+              {nume: "Spațiile organizațiilor", stare: $o},
+              {nume: "Site-ul planova.ro", stare: $s}
+            ]}' > out/status.json
+          echo "publica=true" >> "$GITHUB_OUTPUT"
+
+      - name: Incarca pagina
+        if: always() && steps.pagina.outputs.publica == 'true'
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+      - name: Publica pe GitHub Pages
+        if: always() && steps.pagina.outputs.publica == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
