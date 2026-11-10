@@ -27,7 +27,7 @@ jobs:
               fi
               sleep 20
             done
-            echo "::error::PICAT $url (cod $code)"; fail=1
+            echo "::error::PICAT $url (cod $code): $(echo "$body" | sed '$d' | tr -d '\r\n' | head -c 600)"; fail=1
           }
           check https://app.planova.ro/health-status '"status":"Healthy"'
           check https://default.app.planova.ro/health-status '"status":"Healthy"'
